@@ -20,11 +20,12 @@ Deno.serve(async(req)=>{
  const now=new Date();
  if(t.effective_from&&new Date(t.effective_from)>now)return json({error:"Tariff is not effective yet"},400);
  if(t.effective_until&&new Date(t.effective_until)<now)return json({error:"Tariff has expired"},400);
- const code=otp(),hash=await sha256Hex(code);
- const row={organization_id:p.organization_id,driver_id:d.id,assigned_by:p.id,status:"ASSIGNED",customer_name:b.customer_name??null,customer_phone:b.customer_phone??null,pickup_address:b.pickup_address??null,pickup_lat:b.pickup_lat??null,pickup_lng:b.pickup_lng??null,destination_address:b.destination_address??null,destination_lat:b.destination_lat??null,destination_lng:b.destination_lng??null,tariff_id:t.id,tariff_snapshot:{id:t.id,name:t.name,mode:t.mode,version:t.version,rules:t.rules},start_otp_hash:hash,scheduled_at:b.scheduled_at??null,notes:b.notes??null};
+ const startCode=otp(),loadCode=otp();
+ const [startHash,loadHash]=await Promise.all([sha256Hex(startCode),sha256Hex(loadCode)]);
+ const row={organization_id:p.organization_id,driver_id:d.id,assigned_by:p.id,status:"ASSIGNED",customer_name:b.customer_name??null,customer_phone:b.customer_phone??null,pickup_address:b.pickup_address??null,pickup_lat:b.pickup_lat??null,pickup_lng:b.pickup_lng??null,destination_address:b.destination_address??null,destination_lat:b.destination_lat??null,destination_lng:b.destination_lng??null,tariff_id:t.id,tariff_snapshot:{id:t.id,name:t.name,mode:t.mode,version:t.version,rules:t.rules},start_otp_hash:startHash,load_otp_hash:loadHash,scheduled_at:b.scheduled_at??null,notes:b.notes??null};
  const {data:trip,error:te}=await admin.from("trips").insert(row).select("id,status,driver_id,customer_name,pickup_address,destination_address,tariff_id,tariff_snapshot,scheduled_at,created_at").single();
  if(te)return json({error:te.message},400);
- await admin.from("trip_events").insert({trip_id:trip.id,organization_id:p.organization_id,event_type:"TRIP_CREATED",from_status:null,to_status:"ASSIGNED",actor_profile_id:p.id,payload:{otp_issued:true}});
- await admin.from("audit_events").insert({organization_id:p.organization_id,actor_profile_id:p.id,event_type:"TRIP_CREATED",entity_type:"trip",entity_id:trip.id,payload:{driver_id:d.id,tariff_id:t.id}});
- return json({trip,start_otp:code},201);
+ await admin.from("trip_events").insert({trip_id:trip.id,organization_id:p.organization_id,event_type:"TRIP_CREATED",from_status:null,to_status:"ASSIGNED",actor_profile_id:p.id,payload:{start_otp_issued:true,load_otp_issued:true}});
+ await admin.from("audit_events").insert({organization_id:p.organization_id,actor_profile_id:p.id,event_type:"TRIP_CREATED",entity_type:"trip",entity_id:trip.id,payload:{driver_id:d.id,tariff_id:t.id,load_otp_issued:true}});
+ return json({trip,start_otp:startCode,load_otp:loadCode},201);
 });
