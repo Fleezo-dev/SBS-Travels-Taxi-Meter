@@ -3,8 +3,29 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-android { namespace = "com.sbstravels.taximeter"; compileSdk = 35
-    defaultConfig { applicationId = "com.sbstravels.taximeter"; minSdk = 26; targetSdk = 35; versionCode = 2; versionName = "0.2.0" }
+android {
+    namespace = "com.sbstravels.taximeter"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.sbstravels.taximeter"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+kotlin {
+    jvmToolchain(17)
 }
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.01.00"))
