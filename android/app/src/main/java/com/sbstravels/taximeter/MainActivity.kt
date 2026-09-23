@@ -251,10 +251,10 @@ class MainActivity : ComponentActivity() {
                         try {
                             val queued = engine.queuedEvents()
                             if (queued.length() > 0) {
-                                val accepted = SupabaseClient.ingestMeterEvents(session, trip.getString("id"), queued)
+                                SupabaseClient.ingestMeterEvents(session, trip.getString("id"), queued)
                                 engine.clearQueuedEvents()
                             }
-                            SupabaseClient.transition(session, trip.getString("id"), "COMPLETED")
+                            SupabaseClient.completeTrip(session, trip.getString("id"))
                             runOnUiThread { onCompleted() }
                         } catch (e: Exception) {
                             runOnUiThread { syncMessage = e.message ?: "Unable to complete trip"; completing = false }
