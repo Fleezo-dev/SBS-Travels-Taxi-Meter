@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SBS Travels Dispatcher</title>
+<style>body{font-family:system-ui;margin:0;background:#f5f5f5;color:#171717}header{background:#111;color:#fff;padding:16px 20px}main{max-width:900px;margin:auto;padding:18px}.card{background:#fff;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 10px #0001}input,select,button{width:100%;padding:12px;margin:6px 0;box-sizing:border-box;border-radius:8px;border:1px solid #ccc}button{background:#c00;color:#fff;border:0;font-weight:700}button.secondary{background:#333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:650px){.grid{grid-template-columns:1fr}}.status{padding:8px;border-radius:8px;background:#eee;margin:8px 0}.hidden{display:none}</style></head>
+<body><header><b>SBS Travels</b> — Dispatcher</header><main>
+<div id="login" class="card"><h2>Dispatcher Login</h2><input id="email" type="email" placeholder="Email"><input id="password" type="password" placeholder="Password"><button onclick="login()">Sign in</button><div id="loginMsg"></div></div>
+<div id="app" class="hidden">
+<div class="card"><button class="secondary" onclick="load()">Refresh Drivers & Tariffs</button><div id="status" class="status">Ready</div></div>
+<div class="card"><h2>Create Trip</h2><div class="grid"><div><label>Driver</label><select id="driver"></select></div><div><label>Tariff</label><select id="tariff"></select></div></div>
+<div class="grid"><input id="customer" placeholder="Customer name"><input id="phone" placeholder="Customer phone"></div>
+<input id="pickup" placeholder="Pickup address"><input id="destination" placeholder="Destination address"><input id="notes" placeholder="Notes"><button onclick="createTrip()">Assign Trip</button>
+<div id="result"></div></div>
+<div class="card"><h2>Active Drivers</h2><div id="drivers"></div></div></div></main>
+<script>
+const BASE="https://utbbydykhlbgbabbwysz.supabase.co";let token="";
+async function api(path,opts={}){opts.headers={...(opts.headers||{}),Authorization:"Bearer "+token,apikey:"PUBLIC_ANON_KEY", "Content-Type":"application/json"};const r=await fetch(BASE+path,opts);const j=await r.json();if(!r.ok)throw Error(j.error||j.message||"Request failed");return j}
+async function login(){try{const r=await fetch(BASE+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"Content-Type":"application/json",apikey:"PUBLIC_ANON_KEY"},body:JSON.stringify({email:email.value,password:password.value})});const j=await r.json();if(!r.ok)throw Error(j.error_description||"Login failed");token=j.access_token;document.getElementById("login").classList.add("hidden");document.getElementById("app").classList.remove("hidden");load()}catch(e){loginMsg.textContent=e.message}}
+async function load(){try{const j=await api("/functions/v1/dispatcher-data");driver.innerHTML="";tariff.innerHTML="";drivers.innerHTML="";j.drivers.forEach(d=>{const name=d.profiles?.full_name||d.driver_code;driver.add(new Option(name+" ("+d.status+")",d.id));drivers.innerHTML+="<div>"+name+" — "+d.status+(d.activation_required?" — activation pending":"")+"</div>"});j.tariffs.filter(t=>t.is_active).forEach(t=>tariff.add(new Option(t.name+" • "+t.mode+" v"+t.version,t.id)));status.textContent="Connected";}catch(e){status.textContent=e.message}}
+async function createTrip(){try{const j=await api("/functions/v1/trip-create",{method:"POST",body:JSON.stringify({driver_id:driver.value,tariff_id:tariff.value,customer_name:customer.value,customer_phone:phone.value,pickup_address:pickup.value,destination_address:destination.value,notes:notes.value})});result.innerHTML="<b>Trip assigned.</b><br>Customer start OTP: <strong>"+j.start_otp+"</strong><br>Trip ID: "+j.trip.id;load()}catch(e){result.textContent=e.message}}
+</script></body></html>
