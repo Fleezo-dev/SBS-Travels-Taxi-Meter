@@ -218,7 +218,7 @@ class MainActivity : ComponentActivity() {
             Thread {
                 try {
                     val accepted = SupabaseClient.ingestMeterEvents(session, trip.getString("id"), engine.queuedEvents())
-                    if (accepted > 0) engine.applySyncSuccess(accepted)
+                    if (accepted >= 0) engine.clearQueuedEvents()
                     runOnUiThread { syncMessage = "Synced $accepted meter events" }
                 } catch (e: Exception) { runOnUiThread { syncMessage = "Offline: events kept on device" } }
             }.start()
@@ -252,7 +252,7 @@ class MainActivity : ComponentActivity() {
                             val queued = engine.queuedEvents()
                             if (queued.length() > 0) {
                                 val accepted = SupabaseClient.ingestMeterEvents(session, trip.getString("id"), queued)
-                                if (accepted > 0) engine.applySyncSuccess(accepted)
+                                engine.clearQueuedEvents()
                             }
                             SupabaseClient.transition(session, trip.getString("id"), "COMPLETED")
                             runOnUiThread { onCompleted() }
