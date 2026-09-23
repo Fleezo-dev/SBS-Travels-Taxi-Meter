@@ -26,3 +26,5 @@ jobs:
         with:
           name: sbs-travels-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+# CI trigger check
