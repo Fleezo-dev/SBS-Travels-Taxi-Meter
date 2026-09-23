@@ -30,6 +30,7 @@ object SupabaseClient {
   val body=org.json.JSONObject().put("trip_id",tripId).put("events",events).toString()
   return post(URL+"/functions/v1/meter-ingest",s,body).optInt("accepted",0)
  }
+ fun completeTrip(s:Session,tripId:String,extraFare:Double=0.0)=post(URL+"/functions/v1/trip-complete",s,JSONObject().put("trip_id",tripId).put("extra_fare",extraFare).toString())
  private fun get(url:String,s:Session):JSONObject{
   val req=Request.Builder().url(url).addHeader("apikey",KEY).addHeader("Authorization","Bearer "+s.accessToken).get().build()
   http.newCall(req).execute().use{r->val t=r.body?.string().orEmpty();if(!r.isSuccessful)throw IllegalStateException(JSONObject(t).optString("error","Request failed"));return JSONObject(t)}
