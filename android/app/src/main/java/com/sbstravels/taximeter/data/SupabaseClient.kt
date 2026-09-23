@@ -22,6 +22,17 @@ object SupabaseClient {
   val req=Request.Builder().url(URL+"/auth/v1/token?grant_type=password").addHeader("apikey",KEY).post(body.toRequestBody(jsonType)).build()
   http.newCall(req).execute().use{r->val t=r.body?.string().orEmpty();if(!r.isSuccessful)throw IllegalStateException(JSONObject(t).optString("msg",JSONObject(t).optString("error_description","Login failed")));val o=JSONObject(t);return Session(o.getString("access_token"),o.optString("refresh_token",null),o.getJSONObject("user").getString("id"))}
  }
+ fun refresh(s:Session):Session{
+  val rt=s.refreshToken?:throw IllegalStateException("Session expired; please sign in again")
+  val req=Request.Builder().url(URL+"/auth/v1/token?grant_type=refresh_token").addHeader("apikey",KEY)
+   .post(JSONObject().put("refresh_token",rt).toString().toRequestBody(jsonType)).build()
+  http.newCall(req).execute().use{r->
+   val t=r.body?.string().orEmpty()
+   if(!r.isSuccessful) throw IllegalStateException("Session expired; please sign in again")
+   val o=JSONObject(t)
+   return Session(o.getString("access_token"),o.optString("refresh_token",rt),o.getJSONObject("user").getString("id"))
+  }
+ }
  fun activate(s:Session,c:Context,code:String):String{
   val body=JSONObject().put("driver_code",code).put("device_fingerprint",deviceFingerprint(c)).put("device_name","Android Driver").put("app_version","0.2.0").toString()
   return post(URL+"/functions/v1/driver-activate",s,body).optString("device_id")
