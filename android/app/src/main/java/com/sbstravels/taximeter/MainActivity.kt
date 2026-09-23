@@ -201,7 +201,20 @@ class MainActivity : ComponentActivity() {
         var snapshot by remember { mutableStateOf(LiveMeterSnapshot(0.0, 0.0, 75.0, false, null, null)) }
         var syncMessage by remember { mutableStateOf("Meter ready") }
         var completing by remember { mutableStateOf(false) }
-        val engine = remember { MeterEngine(this@MainActivity, trip.getString("id")) }
+        val tariff = trip.optJSONObject("tariff")
+        val snapshot = trip.optJSONObject("tariff_snapshot")
+        val rules = snapshot?.optJSONObject("rules") ?: tariff?.optJSONObject("rules") ?: JSONObject()
+        val mode = snapshot?.optString("mode")?.takeIf { !it.isNullOrBlank() } ?: tariff?.optString("mode","METER") ?: "METER"
+        val baseFare = rules.optDouble("base_fare",75.0)
+        val perKm = rules.optDouble("per_km",28.0)
+        val waitingPerMinute = rules.optDouble("waiting_per_minute",2.0)
+        val hourlyRate = rules.optDouble("hourly_rate",350.0)
+        val freeKmPerHour = rules.optDouble("free_km_per_hour",10.0)
+        val excessKmRate = rules.optDouble("excess_km_rate",20.0)
+        val startedAtMillis = try { java.time.Instant.parse(trip.optString("started_at")).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
+        val engine = remember(trip.getString("id")) {
+            MeterEngine(this@MainActivity, trip.getString("id"), baseFare, perKm, waitingPerMinute, mode, hourlyRate, freeKmPerHour, excessKmRate, startedAtMillis)
+        }
 
         LaunchedEffect(permissionGranted) {
             if (permissionGranted) {
@@ -236,7 +249,7 @@ class MainActivity : ComponentActivity() {
                 Button(onClick = onRequestPermission, modifier = Modifier.fillMaxWidth()) { Text("Enable GPS") }
             } else {
                 Spacer(Modifier.height(20.dp))
-                Text("₹" + String.format("%.2f", snapshot.fare), style = MaterialTheme.typography.displaySmall)
+                Text(mode + " • ₹" + String.format("%.2f", snapshot.fare), style = MaterialTheme.typography.displaySmall)
                 Text(String.format("%.2f km", snapshot.distanceKm), style = MaterialTheme.typography.headlineMedium)
                 Text(String.format("%.1f min waiting", snapshot.waitingMinutes))
                 Text(if (snapshot.waiting) "WAITING" else "MOVING", style = MaterialTheme.typography.titleLarge)
