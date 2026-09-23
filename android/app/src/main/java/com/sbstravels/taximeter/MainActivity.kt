@@ -16,12 +16,49 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.sbstravels.taximeter.data.Session
 import com.sbstravels.taximeter.data.SupabaseClient
 import com.sbstravels.taximeter.meter.LiveMeterSnapshot
 import com.sbstravels.taximeter.meter.MeterEngine
 import org.json.JSONArray
 import org.json.JSONObject
+
+
+@Composable
+private fun SBSTheme(content: @Composable () -> Unit) {
+    val colors = lightColorScheme(
+        primary = Color(0xFFD91E18),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFFFDAD6),
+        onPrimaryContainer = Color(0xFF410002),
+        secondary = Color(0xFF5F5F5F),
+        background = Color(0xFFF7F7F7),
+        surface = Color.White,
+        surfaceVariant = Color(0xFFF0F0F0),
+        error = Color(0xFFB3261E)
+    )
+    MaterialTheme(
+        colorScheme = colors,
+        typography = Typography().run {
+            copy(
+                headlineLarge = headlineLarge.copy(fontWeight = FontWeight.Bold),
+                headlineMedium = headlineMedium.copy(fontWeight = FontWeight.Bold),
+                headlineSmall = headlineSmall.copy(fontWeight = FontWeight.Bold),
+                titleLarge = titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                titleMedium = titleMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+        },
+        shapes = Shapes(
+            small = RoundedCornerShape(10.dp),
+            medium = RoundedCornerShape(16.dp),
+            large = RoundedCornerShape(20.dp)
+        ),
+        content = content
+    )
+}
 
 class MainActivity : ComponentActivity() {
     private val locationPermission = registerForActivityResult(
@@ -41,7 +78,9 @@ class MainActivity : ComponentActivity() {
         meterPermissionGranted =
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        setContent { MaterialTheme { TaxiApp() } }
+        window.statusBarColor = android.graphics.Color.rgb(185, 28, 28)
+        window.navigationBarColor = android.graphics.Color.rgb(18, 18, 18)
+        setContent { SBSTheme { TaxiApp() } }
     }
 
     @Composable
