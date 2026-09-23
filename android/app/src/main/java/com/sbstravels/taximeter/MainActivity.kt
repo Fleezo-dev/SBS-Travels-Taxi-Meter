@@ -45,11 +45,14 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun TaxiApp() {
         var session by remember { mutableStateOf<Session?>(SupabaseClient.loadSession(this@MainActivity)) }
+        LaunchedEffect(Unit) { currentSession = session }
         var activated by remember { mutableStateOf(false) }
         LaunchedEffect(session) { session?.let { s -> Thread { try { val ss = try { SupabaseClient.driverSession(s) } catch (_: Exception) { val refreshed = SupabaseClient.refresh(s); SupabaseClient.saveSession(this@MainActivity, refreshed); runOnUiThread { session = refreshed }; SupabaseClient.driverSession(refreshed) }; val d = ss.optJSONObject("driver"); runOnUiThread { activated = d?.optBoolean("activation_required", true) == false } } catch (_: Exception) {} }.start() } }
         var trips by remember { mutableStateOf(JSONArray()) }
         var activeTrip by remember { mutableStateOf<JSONObject?>(null) }
         var completedInvoice by remember { mutableStateOf<JSONObject?>(null) }
+        var history by remember { mutableStateOf(JSONArray()) }
+        var showHistory by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
 
@@ -77,6 +80,7 @@ class MainActivity : ComponentActivity() {
                     runOnUiThread { activated = true }
                 }
             }
+            showHistory -> HistoryScreen(history, onBack = { showHistory = false })
             completedInvoice != null -> InvoiceScreen(
                 invoice = completedInvoice!!,
                 onDone = { completedInvoice = null }
@@ -101,7 +105,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            else -> Dashboard(trips, busy, message, onRefresh = {
+            else -> Dashboard(trips, busy, message, onHistory = {
+                work {
+                    val o = SupabaseClient.history(session!!)
+                    runOnUiThread { history = o.optJSONArray("trips") ?: JSONArray(); showHistory = true }
+                }
+            }, onRefresh = {
                 work {
                     val o = SupabaseClient.trips(session!!)
                     runOnUiThread { trips = o.optJSONArray("trips") ?: JSONArray() }
@@ -149,19 +158,51 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Dashboard(
         trips: JSONArray, busy: Boolean, message: String,
-        onRefresh: () -> Unit, onOpenMeter: (JSONObject) -> Unit
+        onHistory: () -> Unit, onRefresh: () -> Unit, onOpenMeter: (JSONObject) -> Unit
     ) {
-        LaunchedEffect(Unit) { onRefresh() }
+        LaunchedEffect(Unit) {
+            onRefresh()
+            while (true) { kotlinx.coroutines.delay(15000); onRefresh() }
+        }
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Assigned Trips", style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = onRefresh, enabled = !busy) { Text("Refresh") }
+                Row {
+                    TextButton(onClick = onHistory, enabled = !busy) { Text("History") }
+                    TextButton(onClick = onRefresh, enabled = !busy) { Text("Refresh") }
+                }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error)
             if (trips.length() == 0 && !busy) Text("No active trips", modifier = Modifier.padding(top = 30.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
                 for (i in 0 until trips.length()) TripCard(trips.getJSONObject(i), onRefresh, onOpenMeter)
+            }
+        }
+    }
+
+    @Composable
+    private fun HistoryScreen(history: JSONArray, onBack: () -> Unit) {
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Trip History", style = MaterialTheme.typography.headlineSmall)
+                TextButton(onClick = onBack) { Text("Back") }
+            }
+            if (history.length() == 0) {
+                Text("No completed or cancelled trips.", modifier = Modifier.padding(top = 30.dp))
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
+                    for (i in 0 until history.length()) {
+                        val t = history.getJSONObject(i)
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text(t.optString("customer_name", "Customer") + " • " + t.optString("status"))
+                                Text(t.optString("pickup_address", "Pickup") + " → " + t.optString("destination_address", "Destination"))
+                                Text(String.format("%.2f km • ₹%.2f", t.optDouble("distance_km", 0.0), t.optDouble("total_fare", 0.0)))
+                            }
+                        }
+                    }
+                }
             }
         }
     }
