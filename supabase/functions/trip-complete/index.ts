@@ -29,7 +29,7 @@ Deno.serve(async(req)=>{
  const seen=new Set<number>(); let prev=0;
  for(const e of rows){
    const seq=n(e,"sequence_no",-1),distance=n(e,"distance_delta_m",-1),waiting=n(e,"waiting_delta_seconds",-1);
-   if(!Number.isInteger(seq)||seq<1)return json({error:"Invalid meter sequence"},409);
+   if(!Number.isInteger(seq)||seq<0)return json({error:"Invalid meter sequence"},409);
    if(seen.has(seq))return json({error:"Duplicate meter sequence detected; trip cannot be completed safely"},409);
    if(seq<prev)return json({error:"Meter sequence is out of order"},409);
    if(distance<0||waiting<0)return json({error:"Negative meter event values are invalid"},409);
