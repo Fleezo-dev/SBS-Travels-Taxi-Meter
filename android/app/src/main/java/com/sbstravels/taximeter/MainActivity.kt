@@ -366,8 +366,6 @@ class MainActivity : ComponentActivity() {
         var snapshot by remember { mutableStateOf(LiveMeterSnapshot(0.0, 0.0, 75.0, false, null, null)) }
         var syncMessage by remember { mutableStateOf("Meter ready") }
         var completing by remember { mutableStateOf(false) }
-        var meterReady by remember { mutableStateOf(false) }
-        var effectiveStartedAtMillis by remember { mutableLongStateOf(startedAtMillis) }
         val tariff = trip.optJSONObject("tariff")
         val tariffSnapshot = trip.optJSONObject("tariff_snapshot")
         val rules = tariffSnapshot?.optJSONObject("rules") ?: tariff?.optJSONObject("rules") ?: JSONObject()
@@ -379,6 +377,9 @@ class MainActivity : ComponentActivity() {
         val freeKmPerHour = rules.optDouble("free_km_per_hour",10.0)
         val excessKmRate = rules.optDouble("excess_km_rate",20.0)
         val startedAtMillis = try { java.time.Instant.parse(trip.optString("started_at")).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
+
+        var meterReady by remember { mutableStateOf(false) }
+        var effectiveStartedAtMillis by remember { mutableLongStateOf(startedAtMillis) }
 
         val meterEngine = remember(trip.getString("id"), effectiveStartedAtMillis) {
             MeterEngine(this@MainActivity, trip.getString("id"), baseFare, perKm, waitingPerMinute, mode, hourlyRate, freeKmPerHour, excessKmRate, effectiveStartedAtMillis)
