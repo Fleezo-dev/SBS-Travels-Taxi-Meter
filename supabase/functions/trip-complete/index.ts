@@ -12,15 +12,31 @@ Deno.serve(async(req)=>{
  if(!p?.is_active||p.role!=="DRIVER")return json({error:"Active driver access required"},403);
  const b=await req.json().catch(()=>({}));const tripId=String(b.trip_id??"");
  if(!tripId)return json({error:"trip_id required"},400);
- const {data:trip}=await db.from("trips").select("*").eq("id",tripId).eq("organization_id",p.organization_id).eq("driver_id",(
-   await db.from("drivers").select("id").eq("profile_id",p.id).eq("organization_id",p.organization_id).maybeSingle()
- ).data?.id).maybeSingle();
+ const {data:driver}=await db.from("drivers").select("id").eq("profile_id",p.id).eq("organization_id",p.organization_id).maybeSingle();
+ if(!driver)return json({error:"Driver record not found"},404);
+ const {data:trip}=await db.from("trips").select("*").eq("id",tripId).eq("organization_id",p.organization_id).eq("driver_id",driver.id).maybeSingle();
  if(!trip)return json({error:"Trip not found"},404);
+ if(trip.status==="COMPLETED"){
+   const {data:existing}=await db.from("invoices").select("*").eq("trip_id",tripId).maybeSingle();
+   if(existing)return json({trip_id:tripId,total_fare:trip.total_fare,distance_km:trip.distance_km,waiting_minutes:trip.waiting_minutes,invoice:existing,idempotent:true});
+   return json({error:"Trip is completed but invoice is missing; manual reconciliation required"},409);
+ }
  if(!["RUNNING","WAITING"].includes(trip.status))return json({error:"Trip must be RUNNING or WAITING"},400);
+ if(!trip.started_at)return json({error:"Trip has no start time"},409);
  const {data:events,error:ee}=await db.from("meter_events").select("distance_delta_m,waiting_delta_seconds,sequence_no").eq("trip_id",tripId).eq("organization_id",p.organization_id).order("sequence_no",{ascending:true});
  if(ee)return json({error:ee.message},500);
- const distanceKm=(events??[]).reduce((s,e)=>s+Math.max(0,n(e,"distance_delta_m")),0)/1000;
- const waitingMinutes=(events??[]).reduce((s,e)=>s+Math.max(0,n(e,"waiting_delta_seconds")),0)/60;
+ const rows=events??[];
+ const seen=new Set<number>(); let prev=0;
+ for(const e of rows){
+   const seq=n(e,"sequence_no",-1),distance=n(e,"distance_delta_m",-1),waiting=n(e,"waiting_delta_seconds",-1);
+   if(!Number.isInteger(seq)||seq<1)return json({error:"Invalid meter sequence"},409);
+   if(seen.has(seq))return json({error:"Duplicate meter sequence detected; trip cannot be completed safely"},409);
+   if(seq<prev)return json({error:"Meter sequence is out of order"},409);
+   if(distance<0||waiting<0)return json({error:"Negative meter event values are invalid"},409);
+   seen.add(seq);prev=seq;
+ }
+ const distanceKm=rows.reduce((s,e)=>s+n(e,"distance_delta_m",0),0)/1000;
+ const waitingMinutes=rows.reduce((s,e)=>s+n(e,"waiting_delta_seconds",0),0)/60;
  const snap=trip.tariff_snapshot??{};
  const mode=String(snap.mode??"METER");
  const r=snap.rules??{};
@@ -51,10 +67,12 @@ Deno.serve(async(req)=>{
    calculation={mode,distance_km:distanceKm,billed_km:billedKm,rate_per_km:rate,minimum_km:minKm,extra_fare:extraFare};
  }else return json({error:"Unsupported tariff mode: "+mode},400);
  const total=baseFare+distanceFare+waitingFare+extraFare;
+ if(!Number.isFinite(total)||total<0)return json({error:"Calculated fare is invalid"},409);
  const invoiceNumber="SBS-"+new Date().toISOString().slice(0,10).replaceAll("-","")+"-"+tripId.replaceAll("-","").slice(0,8).toUpperCase();
- const {data:invoice,error:ie}=await db.from("invoices").upsert({trip_id:tripId,organization_id:p.organization_id,invoice_number:invoiceNumber,subtotal:baseFare+distanceFare,extra_total:waitingFare+extraFare,total,breakdown:{...calculation,base_fare:baseFare,distance_fare:distanceFare,waiting_fare:waitingFare,extra_fare:extraFare,total},issued_at:new Date().toISOString()},{onConflict:"trip_id"}).select("*").single();
- if(ie)return json({error:ie.message},500);
  const {error:te}=await db.from("trips").update({status:"COMPLETED",completed_at:new Date().toISOString(),distance_km:distanceKm,waiting_minutes:waitingMinutes,base_fare:baseFare,distance_fare:distanceFare,waiting_fare:waitingFare,extra_fare:extraFare,total_fare:total}).eq("id",tripId).eq("status",trip.status);
+ if(te)return json({error:te.message},500);
+ const {data:invoice,error:ie}=await db.from("invoices").upsert({trip_id:tripId,organization_id:p.organization_id,invoice_number:invoiceNumber,subtotal:baseFare+distanceFare,extra_total:waitingFare+extraFare,total,breakdown:{...calculation,base_fare:baseFare,distance_fare:distanceFare,waiting_fare:waitingFare,extra_fare:extraFare,total},issued_at:new Date().toISOString()},{onConflict:"trip_id"}).select("*").single();
+ if(ie)return json({error:ie.message,trip_completed:true},500);
  if(te)return json({error:te.message},500);
  await db.from("trip_events").insert({trip_id:tripId,organization_id:p.organization_id,event_type:"TRIP_COMPLETED",from_status:trip.status,to_status:"COMPLETED",actor_profile_id:p.id,payload:{distance_km:distanceKm,waiting_minutes:waitingMinutes,total_fare:total,tariff_mode:mode}});
  return json({trip_id:tripId,total_fare:total,distance_km:distanceKm,waiting_minutes:waitingMinutes,invoice});
