@@ -37,12 +37,15 @@ object SupabaseClient {
   val c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.ENCRYPT_MODE,key())
   return Base64.encodeToString(c.iv,Base64.NO_WRAP)+"."+Base64.encodeToString(c.doFinal(value.toByteArray(StandardCharsets.UTF_8)),Base64.NO_WRAP)
  }
- private fun dec(value:String?):String?=try{
+ private fun dec(value:String?):String? {
   if(value==null)return null
-  val x=value.split(".");if(x.size!=2)return null
-  val c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(x[0],Base64.NO_WRAP)))
-  String(c.doFinal(Base64.decode(x[1],Base64.NO_WRAP)),StandardCharsets.UTF_8)
- }catch(_:Exception){null}
+  return try {
+   val x=value.split(".");if(x.size!=2)return null
+   val c=Cipher.getInstance("AES/GCM/NoPadding")
+   c.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(x[0],Base64.NO_WRAP)))
+   String(c.doFinal(Base64.decode(x[1],Base64.NO_WRAP)),StandardCharsets.UTF_8)
+  } catch(_:Exception) { null }
+ }
  private val jsonType="application/json".toMediaType()
  fun deviceFingerprint(context:Context)=Settings.Secure.getString(context.contentResolver,Settings.Secure.ANDROID_ID)?:"unknown-device"
  fun saveSession(context:Context,s:Session){
