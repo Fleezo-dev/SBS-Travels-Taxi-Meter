@@ -159,7 +159,7 @@ Deno.serve(async (req: Request) => {
 
   await admin
     .from("drivers")
-    .update({ activated_at: driver.activation_required ? now : undefined, updated_at: now })
+    .update({ activated_at: now, activation_required: false, updated_at: now })
     .eq("id", driver.id);
 
   await admin.from("audit_events").insert({
