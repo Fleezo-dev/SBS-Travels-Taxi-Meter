@@ -366,6 +366,8 @@ class MainActivity : ComponentActivity() {
         var snapshot by remember { mutableStateOf(LiveMeterSnapshot(0.0, 0.0, 75.0, false, null, null)) }
         var syncMessage by remember { mutableStateOf("Meter ready") }
         var completing by remember { mutableStateOf(false) }
+        var meterReady by remember { mutableStateOf(false) }
+        var effectiveStartedAtMillis by remember { mutableLongStateOf(startedAtMillis) }
         val tariff = trip.optJSONObject("tariff")
         val tariffSnapshot = trip.optJSONObject("tariff_snapshot")
         val rules = tariffSnapshot?.optJSONObject("rules") ?: tariff?.optJSONObject("rules") ?: JSONObject()
@@ -378,16 +380,30 @@ class MainActivity : ComponentActivity() {
         val excessKmRate = rules.optDouble("excess_km_rate",20.0)
         val startedAtMillis = try { java.time.Instant.parse(trip.optString("started_at")).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
 
-        val meterEngine = remember(trip.getString("id")) {
-            MeterEngine(this@MainActivity, trip.getString("id"), baseFare, perKm, waitingPerMinute, mode, hourlyRate, freeKmPerHour, excessKmRate, startedAtMillis)
+        val meterEngine = remember(trip.getString("id"), effectiveStartedAtMillis) {
+            MeterEngine(this@MainActivity, trip.getString("id"), baseFare, perKm, waitingPerMinute, mode, hourlyRate, freeKmPerHour, excessKmRate, effectiveStartedAtMillis)
         }
 
         LaunchedEffect(permissionGranted, trip.getString("id")) {
             if (permissionGranted) {
-                if (trip.optString("status") == "STARTED") {
-                    try { SupabaseClient.transition(session, trip.getString("id"), "RUNNING") } catch (_: Exception) {}
-                }
-                val intent = Intent(this@MainActivity, MeterForegroundService::class.java).apply {
+                Thread {
+                    try {
+                        var serverTrip = trip
+                        if (trip.optString("status") == "STARTED") {
+                            val response = SupabaseClient.transition(session, trip.getString("id"), "RUNNING")
+                            serverTrip = response.optJSONObject("trip") ?: trip
+                        }
+                        val serverStartedAt = try {
+                            java.time.Instant.parse(serverTrip.optString("started_at")).toEpochMilli()
+                        } catch (_: Exception) {
+                            startedAtMillis
+                        }
+                        runOnUiThread {
+                            effectiveStartedAtMillis = serverStartedAt
+                            meterReady = true
+                            syncMessage = "Meter ready"
+                        }
+                        val intent = Intent(this@MainActivity, MeterForegroundService::class.java).apply {
                     putExtra(MeterForegroundService.EXTRA_TRIP_ID, trip.getString("id"))
                     putExtra(MeterForegroundService.EXTRA_BASE_FARE, baseFare)
                     putExtra(MeterForegroundService.EXTRA_PER_KM, perKm)
@@ -396,9 +412,16 @@ class MainActivity : ComponentActivity() {
                     putExtra(MeterForegroundService.EXTRA_HOURLY_RATE, hourlyRate)
                     putExtra(MeterForegroundService.EXTRA_FREE_KM_PER_HOUR, freeKmPerHour)
                     putExtra(MeterForegroundService.EXTRA_EXCESS_KM_RATE, excessKmRate)
-                    putExtra(MeterForegroundService.EXTRA_STARTED_AT, startedAtMillis)
-                }
-                androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, intent)
+                            putExtra(MeterForegroundService.EXTRA_STARTED_AT, serverStartedAt)
+                        }
+                        androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, intent)
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            meterReady = false
+                            syncMessage = "Unable to start meter: ${e.message ?: "trip could not be moved to RUNNING"}"
+                        }
+                    }
+                }.start()
 
                 while (true) {
                     val p = getSharedPreferences(MeterForegroundService.PREFS_NAME, MODE_PRIVATE)
@@ -452,9 +475,9 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(20.dp))
                 Text(syncMessage)
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = { sync() }, modifier = Modifier.fillMaxWidth()) { Text("Sync Meter Data") }
+                OutlinedButton(onClick = { sync() }, enabled = meterReady && !completing, modifier = Modifier.fillMaxWidth()) { Text("Sync Meter Data") }
                 Spacer(Modifier.height(10.dp))
-                Button(enabled = !completing, onClick = {
+                Button(enabled = meterReady && !completing, onClick = {
                     completing = true
                     Thread {
                         try {
