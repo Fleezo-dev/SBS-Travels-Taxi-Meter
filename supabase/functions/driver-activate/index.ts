@@ -162,13 +162,14 @@ Deno.serve(async (req: Request) => {
     .update({ activated_at: driver.activation_required ? now : undefined, updated_at: now })
     .eq("id", driver.id);
 
-  await admin.from("trip_events").insert({
-    trip_id: null,
+  await admin.from("audit_events").insert({
     organization_id: driver.organization_id,
-    event_type: "DRIVER_DEVICE_ACTIVATED",
     actor_profile_id: profile.id,
-    payload: { driver_id: driver.id, device_id: deviceId },
-  }).catch(() => undefined);
+    event_type: "DRIVER_DEVICE_ACTIVATED",
+    entity_type: "device",
+    entity_id: deviceId,
+    payload: { driver_id: driver.id, device_id: deviceId, app_version: body.app_version ?? null },
+  });
 
   return new Response(JSON.stringify({
     activated: true,
