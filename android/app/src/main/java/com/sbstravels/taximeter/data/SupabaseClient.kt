@@ -14,6 +14,9 @@ object SupabaseClient {
  private val http=OkHttpClient()
  private val jsonType="application/json".toMediaType()
  fun deviceFingerprint(context:Context)=Settings.Secure.getString(context.contentResolver,Settings.Secure.ANDROID_ID)?:"unknown-device"
+ fun saveSession(context:Context,s:Session){ context.getSharedPreferences("auth",Context.MODE_PRIVATE).edit().putString("access",s.accessToken).putString("refresh",s.refreshToken).putString("user",s.userId).apply() }
+ fun loadSession(context:Context):Session?{ val p=context.getSharedPreferences("auth",Context.MODE_PRIVATE); val a=p.getString("access",null)?:return null; return Session(a,p.getString("refresh",null),p.getString("user", "")?:"") }
+ fun clearSession(context:Context){ context.getSharedPreferences("auth",Context.MODE_PRIVATE).edit().clear().apply() }
  fun login(email:String,password:String):Session{
   val body=JSONObject().put("email",email).put("password",password).toString()
   val req=Request.Builder().url(URL+"/auth/v1/token?grant_type=password").addHeader("apikey",KEY).post(body.toRequestBody(jsonType)).build()
