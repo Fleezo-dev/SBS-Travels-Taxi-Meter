@@ -202,9 +202,9 @@ class MainActivity : ComponentActivity() {
         var syncMessage by remember { mutableStateOf("Meter ready") }
         var completing by remember { mutableStateOf(false) }
         val tariff = trip.optJSONObject("tariff")
-        val snapshot = trip.optJSONObject("tariff_snapshot")
-        val rules = snapshot?.optJSONObject("rules") ?: tariff?.optJSONObject("rules") ?: JSONObject()
-        val mode = snapshot?.optString("mode")?.takeIf { !it.isNullOrBlank() } ?: tariff?.optString("mode","METER") ?: "METER"
+        val tariffSnapshot = trip.optJSONObject("tariff_snapshot")
+        val rules = tariffSnapshot?.optJSONObject("rules") ?: tariff?.optJSONObject("rules") ?: JSONObject()
+        val mode = tariffSnapshot?.optString("mode")?.takeIf { !it.isNullOrBlank() } ?: tariff?.optString("mode","METER") ?: "METER"
         val baseFare = rules.optDouble("base_fare",75.0)
         val perKm = rules.optDouble("per_km",28.0)
         val waitingPerMinute = rules.optDouble("waiting_per_minute",2.0)
