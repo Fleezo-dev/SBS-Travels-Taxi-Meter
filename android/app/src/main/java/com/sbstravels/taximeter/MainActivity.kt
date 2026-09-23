@@ -3,6 +3,9 @@ package com.sbstravels.taximeter
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.content.Intent
+import androidx.core.content.FileProvider
+import com.sbstravels.taximeter.invoice.InvoicePdf
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -312,7 +315,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Spacer(Modifier.height(18.dp))
-            Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Back to Trips") }
+            Button(onClick = {
+                try {
+                    val file = InvoicePdf.create(this@MainActivity, invoice)
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }, "Share Invoice"))
+                } catch (_: Exception) {}
+            }, modifier = Modifier.fillMaxWidth()) { Text("Share PDF Invoice") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Back to Trips") }
         }
     }
 
