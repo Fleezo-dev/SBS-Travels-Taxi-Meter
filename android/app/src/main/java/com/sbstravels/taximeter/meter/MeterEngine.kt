@@ -25,7 +25,12 @@ class MeterEngine(
     private val tripId: String,
     private val baseFare: Double = 75.0,
     private val perKm: Double = 28.0,
-    private val waitingPerMinute: Double = 2.0
+    private val waitingPerMinute: Double = 2.0,
+    private val mode: String = "METER",
+    private val hourlyRate: Double = 350.0,
+    private val freeKmPerHour: Double = 10.0,
+    private val excessKmRate: Double = 20.0,
+    private val startedAtMillis: Long = System.currentTimeMillis()
 ) {
     private val prefs=context.getSharedPreferences("meter_queue",Context.MODE_PRIVATE)
     private val locationManager=context.getSystemService(LocationManager::class.java)
@@ -97,7 +102,11 @@ class MeterEngine(
             .putLong(tripId+"_last_captured",lastCaptured).putInt(tripId+"_sequence",sequence).apply()
         val d=distanceM/1000.0
         val w=waitingSeconds/60.0
-        onSnapshot?.invoke(LiveMeterSnapshot(d,w,baseFare+d*perKm+w*waitingPerMinute,waitingDelta>0,location.latitude,location.longitude))
+        val fare=if(mode=="HOURLY"){
+            val hours=max(1,((now-startedAtMillis).coerceAtLeast(0L)+3599999L)/3600000L)
+            hours*hourlyRate+max(0.0,d-hours*freeKmPerHour)*excessKmRate
+        }else baseFare+d*perKm+w*waitingPerMinute
+        onSnapshot?.invoke(LiveMeterSnapshot(d,w,fare,waitingDelta>0,location.latitude,location.longitude))
     }
 
     private fun appendEvent(event:JSONObject){
