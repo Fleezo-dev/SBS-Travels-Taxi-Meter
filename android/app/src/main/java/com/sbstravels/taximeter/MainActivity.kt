@@ -3,11 +3,13 @@ package com.sbstravels.taximeter
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.widget.Toast
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.sbstravels.taximeter.invoice.InvoicePdf
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -55,6 +57,23 @@ class MainActivity : ComponentActivity() {
         var showHistory by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
+        var lastBackPressedAt by remember { mutableLongStateOf(0L) }
+
+        BackHandler(enabled = session != null && activated && !busy) {
+            when {
+                showHistory -> showHistory = false
+                completedInvoice != null -> completedInvoice = null
+                activeTrip != null -> activeTrip = null
+                else -> {
+                    val now = System.currentTimeMillis()
+                    if (now - lastBackPressedAt < 1800L) finish()
+                    else {
+                        lastBackPressedAt = now
+                        Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
 
         fun work(block: () -> Unit) {
             busy = true; message = ""
