@@ -228,11 +228,22 @@ class MainActivity : ComponentActivity() {
                 if (status == "STARTED" || status == "RUNNING" || status == "WAITING") {
                     Button(onClick = { onOpenMeter(t) }, modifier = Modifier.fillMaxWidth()) { Text("Open Meter") }
                 } else if (next != null) {
-                    Button(enabled = !localBusy, onClick = {
+                    var otp by remember { mutableStateOf("") }
+                    if (next == "STARTED") {
+                        OutlinedTextField(
+                            value = otp,
+                            onValueChange = { otp = it.filter(Char::isDigit).take(6) },
+                            label = { Text("Customer start OTP") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Button(enabled = !localBusy && (next != "STARTED" || otp.length == 6), onClick = {
                         localBusy = true
                         Thread {
                             try {
-                                SupabaseClient.transition(currentSession!!, t.getString("id"), next)
+                                SupabaseClient.transition(currentSession!!, t.getString("id"), next, if (next == "STARTED") otp else null)
                                 if (next == "STARTED") runOnUiThread { onOpenMeter(t.put("status", "STARTED")) }
                                 else runOnUiThread { onRefresh() }
                             } catch (e: Exception) { err = e.message ?: "Trip update failed" }
