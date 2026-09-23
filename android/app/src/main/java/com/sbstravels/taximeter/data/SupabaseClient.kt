@@ -26,6 +26,10 @@ object SupabaseClient {
  fun driverSession(s:Session)=get(URL+"/functions/v1/driver-session",s)
  fun trips(s:Session)=get(URL+"/functions/v1/driver-trips",s)
  fun transition(s:Session,tripId:String,toStatus:String)=post(URL+"/functions/v1/trip-transition",s,JSONObject().put("trip_id",tripId).put("to_status",toStatus).toString())
+ fun ingestMeterEvents(s:Session,tripId:String,events:org.json.JSONArray):Int{
+  val body=org.json.JSONObject().put("trip_id",tripId).put("events",events).toString()
+  return post(URL+"/functions/v1/meter-ingest",s,body).optInt("accepted",0)
+ }
  private fun get(url:String,s:Session):JSONObject{
   val req=Request.Builder().url(url).addHeader("apikey",KEY).addHeader("Authorization","Bearer "+s.accessToken).get().build()
   http.newCall(req).execute().use{r->val t=r.body?.string().orEmpty();if(!r.isSuccessful)throw IllegalStateException(JSONObject(t).optString("error","Request failed"));return JSONObject(t)}
