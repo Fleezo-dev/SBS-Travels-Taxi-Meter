@@ -1,6 +1,15 @@
 package com.sbstravels.taximeter.data
 import android.content.Context
 import android.provider.Settings
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.nio.charset.StandardCharsets
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -11,12 +20,46 @@ data class Session(val accessToken:String,val refreshToken:String?,val userId:St
 object SupabaseClient {
  private const val URL="https://utbbydykhlbgbabbwysz.supabase.co"
  private const val KEY="sb_publishable_WG2E2M7Y6HMks74ms77irQ_VSGaWDkp"
+ private const val PREFS="auth_secure"
+ private const val OLD_PREFS="auth"
+ private const val KEY_ALIAS="sbs_travels_session_key"
  private val http=OkHttpClient()
+
+ private fun key():SecretKey{
+  val ks=KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
+  (ks.getKey(KEY_ALIAS,null) as? SecretKey)?.let{return it}
+  val gen=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore")
+  gen.init(KeyGenParameterSpec.Builder(KEY_ALIAS,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+   .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+  return gen.generateKey()
+ }
+ private fun enc(value:String):String{
+  val c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.ENCRYPT_MODE,key())
+  return Base64.encodeToString(c.iv,Base64.NO_WRAP)+"."+Base64.encodeToString(c.doFinal(value.toByteArray(StandardCharsets.UTF_8)),Base64.NO_WRAP)
+ }
+ private fun dec(value:String?):String?=try{
+  if(value==null)return null
+  val x=value.split(".");if(x.size!=2)return null
+  val c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(x[0],Base64.NO_WRAP)))
+  String(c.doFinal(Base64.decode(x[1],Base64.NO_WRAP)),StandardCharsets.UTF_8)
+ }catch(_:Exception){null}
  private val jsonType="application/json".toMediaType()
  fun deviceFingerprint(context:Context)=Settings.Secure.getString(context.contentResolver,Settings.Secure.ANDROID_ID)?:"unknown-device"
- fun saveSession(context:Context,s:Session){ context.getSharedPreferences("auth",Context.MODE_PRIVATE).edit().putString("access",s.accessToken).putString("refresh",s.refreshToken).putString("user",s.userId).apply() }
- fun loadSession(context:Context):Session?{ val p=context.getSharedPreferences("auth",Context.MODE_PRIVATE); val a=p.getString("access",null)?:return null; return Session(a,p.getString("refresh",null),p.getString("user", "")?:"") }
- fun clearSession(context:Context){ context.getSharedPreferences("auth",Context.MODE_PRIVATE).edit().clear().apply() }
+ fun saveSession(context:Context,s:Session){
+ context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit()
+  .putString("access",enc(s.accessToken)).putString("refresh",s.refreshToken?.let(::enc)).putString("user",enc(s.userId)).apply()
+ context.deleteSharedPreferences(OLD_PREFS)
+}
+ fun loadSession(context:Context):Session?{
+ val p=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+ val a=dec(p.getString("access",null))
+ if(a!=null)return Session(a,dec(p.getString("refresh",null)),dec(p.getString("user",null))?:"")
+ val old=context.getSharedPreferences(OLD_PREFS,Context.MODE_PRIVATE)
+ val legacy=old.getString("access",null)?:return null
+ val s=Session(legacy,old.getString("refresh",null),old.getString("user","")?:"")
+ saveSession(context,s);return s
+}
+ fun clearSession(context:Context){ context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().clear().apply();context.deleteSharedPreferences(OLD_PREFS) }
  fun login(email:String,password:String):Session{
   val body=JSONObject().put("email",email).put("password",password).toString()
   val req=Request.Builder().url(URL+"/auth/v1/token?grant_type=password").addHeader("apikey",KEY).post(body.toRequestBody(jsonType)).build()
