@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
         var activated by remember { mutableStateOf(false) }
         var trips by remember { mutableStateOf(JSONArray()) }
         var activeTrip by remember { mutableStateOf<JSONObject?>(null) }
+        var completedInvoice by remember { mutableStateOf<JSONObject?>(null) }
         var busy by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
 
@@ -71,6 +72,10 @@ class MainActivity : ComponentActivity() {
                     runOnUiThread { activated = true }
                 }
             }
+            completedInvoice != null -> InvoiceScreen(
+                invoice = completedInvoice!!,
+                onDone = { completedInvoice = null }
+            )
             activeTrip != null -> MeterScreen(
                 session = session!!,
                 trip = activeTrip!!,
@@ -82,8 +87,9 @@ class MainActivity : ComponentActivity() {
                     ))
                 },
                 onBack = { activeTrip = null },
-                onCompleted = {
+                onCompleted = { invoice ->
                     activeTrip = null
+                    completedInvoice = invoice
                     work {
                         val o = SupabaseClient.trips(session!!)
                         runOnUiThread { trips = o.optJSONArray("trips") ?: JSONArray() }
@@ -196,7 +202,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun MeterScreen(
         session: Session, trip: JSONObject, permissionGranted: Boolean,
-        onRequestPermission: () -> Unit, onBack: () -> Unit, onCompleted: () -> Unit
+        onRequestPermission: () -> Unit, onBack: () -> Unit, onCompleted: (JSONObject) -> Unit
     ) {
         var snapshot by remember { mutableStateOf(LiveMeterSnapshot(0.0, 0.0, 75.0, false, null, null)) }
         var syncMessage by remember { mutableStateOf("Meter ready") }
@@ -267,14 +273,52 @@ class MainActivity : ComponentActivity() {
                                 SupabaseClient.ingestMeterEvents(session, trip.getString("id"), queued)
                                 engine.clearQueuedEvents()
                             }
-                            SupabaseClient.completeTrip(session, trip.getString("id"))
-                            runOnUiThread { onCompleted() }
+                            val result = SupabaseClient.completeTrip(session, trip.getString("id"))
+                            val invoice = result.optJSONObject("invoice") ?: JSONObject()
+                            runOnUiThread { onCompleted(invoice) }
                         } catch (e: Exception) {
                             runOnUiThread { syncMessage = e.message ?: "Unable to complete trip"; completing = false }
                         }
                     }.start()
                 }, modifier = Modifier.fillMaxWidth()) { Text(if (completing) "Completing…" else "Complete Trip") }
             }
+        }
+    }
+
+
+    @Composable
+    private fun InvoiceScreen(invoice: JSONObject, onDone: () -> Unit) {
+        val breakdown = invoice.optJSONObject("breakdown") ?: JSONObject()
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Text("TRIP COMPLETED", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(6.dp))
+            Text("SBS Travels", style = MaterialTheme.typography.titleLarge)
+            Text("Invoice " + invoice.optString("invoice_number", "—"))
+            Spacer(Modifier.height(18.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Fare Summary", style = MaterialTheme.typography.titleMedium)
+                    FareRow("Base fare", breakdown.optDouble("base_fare", 0.0))
+                    FareRow("Distance (" + String.format("%.2f", breakdown.optDouble("distance_km", 0.0)) + " km)", breakdown.optDouble("distance_fare", 0.0))
+                    FareRow("Waiting (" + String.format("%.1f", breakdown.optDouble("waiting_minutes", 0.0)) + " min)", breakdown.optDouble("waiting_minutes", 0.0) * breakdown.optDouble("waiting_per_minute", 0.0))
+                    FareRow("Extras", breakdown.optDouble("extra_fare", 0.0))
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("TOTAL", style = MaterialTheme.typography.titleLarge)
+                        Text("₹" + String.format("%.2f", invoice.optDouble("total", 0.0)), style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Back to Trips") }
+        }
+    }
+
+    @Composable
+    private fun FareRow(label: String, amount: Double) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label)
+            Text("₹" + String.format("%.2f", amount))
         }
     }
 
