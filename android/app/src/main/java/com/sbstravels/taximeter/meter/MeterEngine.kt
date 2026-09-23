@@ -51,14 +51,14 @@ class MeterEngine(
     private var waitingSeconds = prefs.getLong(tripId + "_waiting_s", 0L)
     private var lastCaptured = prefs.getLong(tripId + "_last_captured", 0L)
     private var lastElapsedRealtime = 0L
-    private var sequence = prefs.getInt(tripId + "_sequence", nextSequenceFromQueue())
+    private var sequence = maxOf(1, prefs.getInt(tripId + "_sequence", nextSequenceFromQueue()))
     private var stopped = false
 
     var onSnapshot: ((LiveMeterSnapshot) -> Unit)? = null
 
     private fun nextSequenceFromQueue(): Int {
         val a = JSONArray(prefs.getString(tripId, "[]") ?: "[]")
-        var maxSeq = -1
+        var maxSeq = 0
         for (i in 0 until a.length()) {
             maxSeq = max(maxSeq, a.getJSONObject(i).optInt("sequence_no", -1))
         }
