@@ -39,6 +39,7 @@ object SupabaseClient {
  }
  fun driverSession(s:Session)=get(URL+"/functions/v1/driver-session",s)
  fun trips(s:Session)=get(URL+"/functions/v1/driver-trips",s)
+ fun loadTrip(s:Session,loadOtp:String)=post(URL+"/functions/v1/trip-load",s,JSONObject().put("load_otp",loadOtp).toString())
  fun history(s:Session)=get(URL+"/functions/v1/driver-history",s)
  fun transition(s:Session,tripId:String,toStatus:String,startOtp:String?=null)=post(URL+"/functions/v1/trip-transition",s,JSONObject().apply{put("trip_id",tripId);put("to_status",toStatus);if(!startOtp.isNullOrBlank())put("start_otp",startOtp)}.toString())
  fun ingestMeterEvents(s:Session,tripId:String,events:org.json.JSONArray):Int{
