@@ -124,7 +124,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            else -> Dashboard(trips, busy, message, onHistory = {
+            else -> Dashboard(session!!, trips, busy, message, onHistory = {
                 work {
                     val o = SupabaseClient.history(session!!)
                     runOnUiThread { history = o.optJSONArray("trips") ?: JSONArray(); showHistory = true }
@@ -176,9 +176,12 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Dashboard(
-        trips: JSONArray, busy: Boolean, message: String,
+        session: Session, trips: JSONArray, busy: Boolean, message: String,
         onHistory: () -> Unit, onRefresh: () -> Unit, onOpenMeter: (JSONObject) -> Unit
     ) {
+        var loadOtp by remember { mutableStateOf("") }
+        var loadBusy by remember { mutableStateOf(false) }
+        var loadMessage by remember { mutableStateOf("") }
         LaunchedEffect(Unit) {
             onRefresh()
             while (true) { kotlinx.coroutines.delay(15000); onRefresh() }
@@ -193,7 +196,53 @@ class MainActivity : ComponentActivity() {
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error)
-            if (trips.length() == 0 && !busy) Text("No active trips", modifier = Modifier.padding(top = 30.dp))
+
+            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Load Assigned Trip", style = MaterialTheme.typography.titleMedium)
+                    Text("Enter the 6-digit load OTP given by the dispatcher. This is separate from the customer's start OTP.")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = loadOtp,
+                        onValueChange = { loadOtp = it.filter(Char::isDigit).take(6); loadMessage = "" },
+                        label = { Text("Trip Load OTP") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        enabled = !loadBusy && loadOtp.length == 6,
+                        onClick = {
+                            loadBusy = true
+                            loadMessage = ""
+                            Thread {
+                                try {
+                                    SupabaseClient.loadTrip(session, loadOtp)
+                                    runOnUiThread {
+                                        loadOtp = ""
+                                        loadMessage = "Trip loaded successfully."
+                                        onRefresh()
+                                    }
+                                } catch (e: Exception) {
+                                    runOnUiThread { loadMessage = e.message ?: "Unable to load trip" }
+                                } finally {
+                                    runOnUiThread { loadBusy = false }
+                                }
+                            }.start()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(if (loadBusy) "Loading…" else "Load Trip") }
+                    if (loadMessage.isNotBlank()) {
+                        Text(
+                            loadMessage,
+                            color = if (loadMessage.startsWith("Trip loaded")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
+            }
+
+            if (trips.length() == 0 && !busy) Text("No active trips", modifier = Modifier.padding(top = 16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
                 for (i in 0 until trips.length()) TripCard(trips.getJSONObject(i), onRefresh, onOpenMeter)
             }
