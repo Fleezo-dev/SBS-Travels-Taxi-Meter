@@ -41,8 +41,9 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun TaxiApp() {
-        var session by remember { mutableStateOf<Session?>(null) }
+        var session by remember { mutableStateOf<Session?>(SupabaseClient.loadSession(this@MainActivity)) }
         var activated by remember { mutableStateOf(false) }
+        LaunchedEffect(session) { session?.let { s -> Thread { try { val ss = try { SupabaseClient.driverSession(s) } catch (_: Exception) { val refreshed = SupabaseClient.refresh(s); SupabaseClient.saveSession(this@MainActivity, refreshed); runOnUiThread { session = refreshed }; SupabaseClient.driverSession(refreshed) }; val d = ss.optJSONObject("driver"); runOnUiThread { activated = d?.optBoolean("activation_required", true) == false } } catch (_: Exception) {} }.start() } }
         var trips by remember { mutableStateOf(JSONArray()) }
         var activeTrip by remember { mutableStateOf<JSONObject?>(null) }
         var completedInvoice by remember { mutableStateOf<JSONObject?>(null) }
@@ -62,6 +63,7 @@ class MainActivity : ComponentActivity() {
             session == null -> LoginScreen(busy, message) { email, pw ->
                 work {
                     val s = SupabaseClient.login(email, pw)
+                    SupabaseClient.saveSession(this@MainActivity, s)
                     runOnUiThread { session = s; currentSession = s }
                 }
             }
