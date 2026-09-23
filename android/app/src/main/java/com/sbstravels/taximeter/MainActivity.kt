@@ -54,14 +54,14 @@ class MainActivity : ComponentActivity() {
         var activeTrip by remember { mutableStateOf<JSONObject?>(null) }
         var completedInvoice by remember { mutableStateOf<JSONObject?>(null) }
         var history by remember { mutableStateOf(JSONArray()) }
-        var showHistory by remember { mutableStateOf(false) }
+        var showHistory by remember { mutableStateOf(false) }\n        var showQuickMeter by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
         var lastBackPressedAt by remember { mutableLongStateOf(0L) }
 
         BackHandler(enabled = session != null && activated && !busy) {
             when {
-                showHistory -> showHistory = false
+                showHistory -> showHistory = false\n                showQuickMeter -> showQuickMeter = false
                 completedInvoice != null -> completedInvoice = null
                 activeTrip != null -> activeTrip = null
                 else -> {
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
                     runOnUiThread { activated = true }
                 }
             }
-            showHistory -> HistoryScreen(history, onBack = { showHistory = false })
+            showHistory -> HistoryScreen(history, onBack = { showHistory = false })\n            showQuickMeter -> QuickMeterScreen(session!!, onBack = { showQuickMeter = false }, onStarted = { trip -> showQuickMeter = false; activeTrip = trip })
             completedInvoice != null -> InvoiceScreen(
                 invoice = completedInvoice!!,
                 onDone = { completedInvoice = null }
@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
                     val o = SupabaseClient.trips(session!!)
                     runOnUiThread { trips = o.optJSONArray("trips") ?: JSONArray() }
                 }
-            }, onOpenMeter = { activeTrip = it })
+            }, onOpenMeter = { activeTrip = it }, onQuickMeter = { showQuickMeter = true })
         }
     }
 
@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
                 Text("Assigned Trips", style = MaterialTheme.typography.headlineSmall)
                 Row {
                     TextButton(onClick = onHistory, enabled = !busy) { Text("History") }
-                    TextButton(onClick = onRefresh, enabled = !busy) { Text("Refresh") }
+                    TextButton(onClick = onRefresh, enabled = !busy) { Text("Refresh") }\n                    TextButton(onClick = onQuickMeter, enabled = !busy) { Text("Quick Meter") }
                 }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
