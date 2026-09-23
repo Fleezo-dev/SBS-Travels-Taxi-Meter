@@ -32,84 +32,164 @@ class MeterEngine(
     private val excessKmRate: Double = 20.0,
     private val startedAtMillis: Long = System.currentTimeMillis()
 ) {
-    private val prefs=context.getSharedPreferences("meter_queue",Context.MODE_PRIVATE)
-    private val locationManager=context.getSystemService(LocationManager::class.java)
-    private var listener:LocationListener?=null
-    private var lastLocation:Location?=null
-    private var distanceM=prefs.getFloat(tripId+"_distance_m",0f).toDouble()
-    private var waitingSeconds=prefs.getLong(tripId+"_waiting_s",0L)
-    private var lastCaptured=prefs.getLong(tripId+"_last_captured",0L)
-    private var sequence=prefs.getInt(tripId+"_sequence",nextSequenceFromQueue())
-    private var stopped=false
-    var onSnapshot:((LiveMeterSnapshot)->Unit)?=null
+    private val prefs = context.getSharedPreferences("meter_queue", Context.MODE_PRIVATE)
+    private val locationManager = context.getSystemService(LocationManager::class.java)
+    private var listener: LocationListener? = null
+    private var lastLocation: Location? = null
+    private var distanceM = prefs.getFloat(tripId + "_distance_m", 0f).toDouble()
+    private var waitingSeconds = prefs.getLong(tripId + "_waiting_s", 0L)
+    private var lastCaptured = prefs.getLong(tripId + "_last_captured", 0L)
+    private var sequence = prefs.getInt(tripId + "_sequence", nextSequenceFromQueue())
+    private var stopped = false
+    var onSnapshot: ((LiveMeterSnapshot) -> Unit)? = null
 
-    private fun nextSequenceFromQueue():Int {
-        val a=JSONArray(prefs.getString(tripId,"[]")?:"[]")
-        var maxSeq=-1
-        for(i in 0 until a.length()) maxSeq=max(maxSeq,a.getJSONObject(i).optInt("sequence_no",-1))
-        return maxSeq+1
+    private fun nextSequenceFromQueue(): Int {
+        val a = JSONArray(prefs.getString(tripId, "[]") ?: "[]")
+        var maxSeq = -1
+        for (i in 0 until a.length()) {
+            maxSeq = max(maxSeq, a.getJSONObject(i).optInt("sequence_no", -1))
+        }
+        return maxSeq + 1
     }
 
     @SuppressLint("MissingPermission")
     fun start() {
-        stopped=false
-        listener=object:LocationListener{
-            override fun onLocationChanged(location:Location){process(location)}
-            override fun onProviderDisabled(provider:String){}
-            override fun onProviderEnabled(provider:String){}
-            override fun onStatusChanged(provider:String,status:Int,extras:Bundle){}
+        stopped = false
+        listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                process(location)
+            }
+            override fun onProviderDisabled(provider: String) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onStatusChanged(provider: String, status: Int, extras: Bundle) {}
         }
-        val l=listener?:return
-        if(locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,2000L,5f,l)
-        else if(locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
-            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER,3000L,10f,l)
+        val l = listener ?: return
+
+        // Request regular GPS samples even while the vehicle is stationary so
+        // waiting time can accumulate without relying on movement.
+        if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                2000L,
+                0f,
+                l
+            )
+        } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            locationManager.requestLocationUpdates(
+                LocationManager.NETWORK_PROVIDER,
+                3000L,
+                0f,
+                l
+            )
+        }
     }
 
-    fun stop(){listener?.let{locationManager.removeUpdates(it)};listener=null;stopped=true}
+    fun stop() {
+        listener?.let { locationManager.removeUpdates(it) }
+        listener = null
+        stopped = true
+    }
 
-    fun queuedEvents()=JSONArray(prefs.getString(tripId,"[]")?:"[]")
-    fun clearQueuedEvents(){prefs.edit().remove(tripId).apply()}
-    fun clearTripState(){prefs.edit().remove(tripId).remove(tripId+"_distance_m").remove(tripId+"_waiting_s").remove(tripId+"_last_captured").remove(tripId+"_sequence").apply()}
+    fun queuedEvents() = JSONArray(prefs.getString(tripId, "[]") ?: "[]")
 
-    private fun process(location:Location){
-        if(stopped)return
-        val now=System.currentTimeMillis()
-        val previous=lastLocation
-        var delta=0.0
-        var waitingDelta=0L
-        if(previous!=null){
-            delta=max(0.0,previous.distanceTo(location).toDouble())
-            if(delta<100.0)distanceM+=delta
-            val dt=((now-lastCaptured).coerceAtLeast(0L))/1000L
-            val speed=if(location.hasSpeed())location.speed.toDouble() else if(dt>0)delta/dt else 0.0
-            if(speed<=1.0&&dt in 1..30){waitingDelta=dt;waitingSeconds+=dt}
+    fun clearQueuedEvents() {
+        prefs.edit().remove(tripId).apply()
+    }
+
+    fun clearTripState() {
+        prefs.edit()
+            .remove(tripId)
+            .remove(tripId + "_distance_m")
+            .remove(tripId + "_waiting_s")
+            .remove(tripId + "_last_captured")
+            .remove(tripId + "_sequence")
+            .apply()
+    }
+
+    private fun process(location: Location) {
+        if (stopped) return
+
+        val now = System.currentTimeMillis()
+        val previous = lastLocation
+        var delta = 0.0
+        var waitingDelta = 0L
+
+        if (previous != null) {
+            delta = max(0.0, previous.distanceTo(location).toDouble())
+
+            // Ignore implausibly large GPS jumps, but retain normal movement
+            // and small stationary GPS drift for the waiting detector.
+            if (delta < 100.0) distanceM += delta
+
+            val dt = ((now - lastCaptured).coerceAtLeast(0L)) / 1000L
+            val speed = if (location.hasSpeed()) {
+                location.speed.toDouble()
+            } else if (dt > 0) {
+                delta / dt
+            } else {
+                0.0
+            }
+
+            // A vehicle is considered waiting when its reported/derived speed
+            // is <= 1 m/s and the GPS movement is only normal stationary drift.
+            // Cap each sample to avoid charging for a long GPS gap.
+            if (speed <= 1.0 && delta <= 3.0 && dt in 1..30) {
+                waitingDelta = dt
+                waitingSeconds += dt
+            }
         }
-        lastLocation=location
-        if(lastCaptured==0L)lastCaptured=now
-        val event=JSONObject()
-            .put("client_event_id",UUID.randomUUID().toString())
-            .put("sequence_no",sequence++)
-            .put("captured_at",java.time.Instant.ofEpochMilli(now).toString())
-            .put("latitude",location.latitude).put("longitude",location.longitude)
-            .put("accuracy_m",location.accuracy)
-            .put("speed_mps",if(location.hasSpeed())location.speed else 0.0)
-            .put("distance_delta_m",delta)
-            .put("waiting_delta_seconds",waitingDelta)
+
+        lastLocation = location
+        if (lastCaptured == 0L) lastCaptured = now
+
+        val event = JSONObject()
+            .put("client_event_id", UUID.randomUUID().toString())
+            .put("sequence_no", sequence++)
+            .put("captured_at", java.time.Instant.ofEpochMilli(now).toString())
+            .put("latitude", location.latitude)
+            .put("longitude", location.longitude)
+            .put("accuracy_m", location.accuracy)
+            .put("speed_mps", if (location.hasSpeed()) location.speed else 0.0)
+            .put("distance_delta_m", delta)
+            .put("waiting_delta_seconds", waitingDelta)
+
         appendEvent(event)
-        lastCaptured=now
-        prefs.edit().putFloat(tripId+"_distance_m",distanceM.toFloat()).putLong(tripId+"_waiting_s",waitingSeconds)
-            .putLong(tripId+"_last_captured",lastCaptured).putInt(tripId+"_sequence",sequence).apply()
-        val d=distanceM/1000.0
-        val w=waitingSeconds/60.0
-        val fare=if(mode=="HOURLY"){
-            val hours=max(1,((now-startedAtMillis).coerceAtLeast(0L)+3599999L)/3600000L)
-            hours*hourlyRate+max(0.0,d-hours*freeKmPerHour)*excessKmRate
-        }else baseFare+d*perKm+w*waitingPerMinute
-        onSnapshot?.invoke(LiveMeterSnapshot(d,w,fare,waitingDelta>0,location.latitude,location.longitude))
+        lastCaptured = now
+
+        prefs.edit()
+            .putFloat(tripId + "_distance_m", distanceM.toFloat())
+            .putLong(tripId + "_waiting_s", waitingSeconds)
+            .putLong(tripId + "_last_captured", lastCaptured)
+            .putInt(tripId + "_sequence", sequence)
+            .apply()
+
+        val d = distanceM / 1000.0
+        val w = waitingSeconds / 60.0
+        val fare = if (mode == "HOURLY") {
+            val hours = max(
+                1,
+                ((now - startedAtMillis).coerceAtLeast(0L) + 3599999L) / 3600000L
+            )
+            hours * hourlyRate + max(0.0, d - hours * freeKmPerHour) * excessKmRate
+        } else {
+            baseFare + d * perKm + w * waitingPerMinute
+        }
+
+        onSnapshot?.invoke(
+            LiveMeterSnapshot(
+                d,
+                w,
+                fare,
+                waitingDelta > 0,
+                location.latitude,
+                location.longitude
+            )
+        )
     }
 
-    private fun appendEvent(event:JSONObject){
-        val a=queuedEvents();a.put(event);prefs.edit().putString(tripId,a.toString()).apply()
+    private fun appendEvent(event: JSONObject) {
+        val a = queuedEvents()
+        a.put(event)
+        prefs.edit().putString(tripId, a.toString()).apply()
     }
 }
