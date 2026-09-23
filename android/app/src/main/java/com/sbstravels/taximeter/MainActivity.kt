@@ -42,15 +42,6 @@ private fun SBSTheme(content: @Composable () -> Unit) {
     )
     MaterialTheme(
         colorScheme = colors,
-        typography = Typography().run {
-            copy(
-                headlineLarge = headlineLarge.copy(fontWeight = FontWeight.Bold),
-                headlineMedium = headlineMedium.copy(fontWeight = FontWeight.Bold),
-                headlineSmall = headlineSmall.copy(fontWeight = FontWeight.Bold),
-                titleLarge = titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                titleMedium = titleMedium.copy(fontWeight = FontWeight.SemiBold)
-            )
-        },
         shapes = Shapes(
             small = RoundedCornerShape(10.dp),
             medium = RoundedCornerShape(16.dp),
@@ -216,7 +207,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Dashboard(
         session: Session, trips: JSONArray, busy: Boolean, message: String,
-        onHistory: () -> Unit, onRefresh: () -> Unit, onOpenMeter: (JSONObject) -> Unit
+        onHistory: () -> Unit, onRefresh: () -> Unit, onOpenMeter: (JSONObject) -> Unit, onQuickMeter: () -> Unit
     ) {
         var loadOtp by remember { mutableStateOf("") }
         var loadBusy by remember { mutableStateOf(false) }
@@ -449,6 +440,94 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+
+    @Composable
+    private fun QuickMeterScreen(session: Session, onBack: () -> Unit, onStarted: (JSONObject) -> Unit) {
+        var tariffs by remember { mutableStateOf(JSONArray()) }
+        var customerName by remember { mutableStateOf("") }
+        var selectedTariff by remember { mutableStateOf<JSONObject?>(null) }
+        var loading by remember { mutableStateOf(true) }
+        var starting by remember { mutableStateOf(false) }
+        var error by remember { mutableStateOf("") }
+
+        LaunchedEffect(Unit) {
+            Thread {
+                try {
+                    val o = SupabaseClient.quickMeterTariffs(session)
+                    val a = o.optJSONArray("tariffs") ?: JSONArray()
+                    runOnUiThread {
+                        tariffs = a
+                        if (a.length() > 0) selectedTariff = a.getJSONObject(0)
+                        loading = false
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { error = e.message ?: "Unable to load tariffs"; loading = false }
+                }
+            }.start()
+        }
+
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("QUICK METER", style = MaterialTheme.typography.headlineSmall)
+                TextButton(onClick = onBack, enabled = !starting) { Text("Back") }
+            }
+            Text("Start a direct customer meter without dispatcher assignment.", modifier = Modifier.padding(top = 4.dp))
+            Spacer(Modifier.height(18.dp))
+            OutlinedTextField(
+                value = customerName,
+                onValueChange = { customerName = it },
+                label = { Text("Customer name (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("Tariff", style = MaterialTheme.typography.titleMedium)
+            if (loading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp))
+            } else if (tariffs.length() == 0) {
+                Text("No active meter tariffs available.", modifier = Modifier.padding(top = 10.dp))
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    for (i in 0 until tariffs.length()) {
+                        val tariff = tariffs.getJSONObject(i)
+                        val selected = selectedTariff?.optString("id") == tariff.optString("id")
+                        Card(
+                            onClick = { selectedTariff = tariff },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(tariff.optString("name", "Meter Tariff"), style = MaterialTheme.typography.titleMedium)
+                                    Text(tariff.optString("mode", "METER"))
+                                }
+                                RadioButton(selected, onClick = { selectedTariff = tariff })
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            Button(
+                enabled = !loading && !starting && selectedTariff != null,
+                onClick = {
+                    val tariffId = selectedTariff!!.optString("id")
+                    starting = true
+                    error = ""
+                    Thread {
+                        try {
+                            val trip = SupabaseClient.createQuickTrip(session, tariffId, customerName)
+                            runOnUiThread { onStarted(trip.optJSONObject("trip") ?: trip) }
+                        } catch (e: Exception) {
+                            runOnUiThread { error = e.message ?: "Unable to start meter"; starting = false }
+                        }
+                    }.start()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (starting) "Starting…" else "Start Meter") }
+            if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp))
+        }
+    }
 
     @Composable
     private fun InvoiceScreen(invoice: JSONObject, onDone: () -> Unit) {
