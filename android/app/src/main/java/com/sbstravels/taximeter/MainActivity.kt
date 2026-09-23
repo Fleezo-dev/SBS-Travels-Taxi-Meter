@@ -377,28 +377,59 @@ class MainActivity : ComponentActivity() {
         val freeKmPerHour = rules.optDouble("free_km_per_hour",10.0)
         val excessKmRate = rules.optDouble("excess_km_rate",20.0)
         val startedAtMillis = try { java.time.Instant.parse(trip.optString("started_at")).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
-        val engine = remember(trip.getString("id")) {
+
+        val meterEngine = remember(trip.getString("id")) {
             MeterEngine(this@MainActivity, trip.getString("id"), baseFare, perKm, waitingPerMinute, mode, hourlyRate, freeKmPerHour, excessKmRate, startedAtMillis)
         }
 
-        LaunchedEffect(permissionGranted) {
+        LaunchedEffect(permissionGranted, trip.getString("id")) {
             if (permissionGranted) {
                 if (trip.optString("status") == "STARTED") {
                     try { SupabaseClient.transition(session, trip.getString("id"), "RUNNING") } catch (_: Exception) {}
                 }
-                engine.onSnapshot = { s -> runOnUiThread { snapshot = s } }
-                engine.start()
+                val intent = Intent(this@MainActivity, MeterForegroundService::class.java).apply {
+                    putExtra(MeterForegroundService.EXTRA_TRIP_ID, trip.getString("id"))
+                    putExtra(MeterForegroundService.EXTRA_BASE_FARE, baseFare)
+                    putExtra(MeterForegroundService.EXTRA_PER_KM, perKm)
+                    putExtra(MeterForegroundService.EXTRA_WAITING_PER_MINUTE, waitingPerMinute)
+                    putExtra(MeterForegroundService.EXTRA_MODE, mode)
+                    putExtra(MeterForegroundService.EXTRA_HOURLY_RATE, hourlyRate)
+                    putExtra(MeterForegroundService.EXTRA_FREE_KM_PER_HOUR, freeKmPerHour)
+                    putExtra(MeterForegroundService.EXTRA_EXCESS_KM_RATE, excessKmRate)
+                    putExtra(MeterForegroundService.EXTRA_STARTED_AT, startedAtMillis)
+                }
+                androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, intent)
+
+                while (true) {
+                    val p = getSharedPreferences(MeterForegroundService.PREFS_NAME, MODE_PRIVATE)
+                    val raw = p.getString(trip.getString("id") + MeterForegroundService.SNAPSHOT_SUFFIX, null)
+                    if (!raw.isNullOrBlank()) {
+                        try {
+                            val o = JSONObject(raw)
+                            snapshot = LiveMeterSnapshot(
+                                o.optDouble("distance_km", 0.0),
+                                o.optDouble("waiting_minutes", 0.0),
+                                o.optDouble("fare", baseFare),
+                                o.optBoolean("waiting", false),
+                                if (o.has("latitude")) o.optDouble("latitude") else null,
+                                if (o.has("longitude")) o.optDouble("longitude") else null
+                            )
+                        } catch (_: Exception) {}
+                    }
+                    kotlinx.coroutines.delay(1000)
+                }
             }
         }
-        DisposableEffect(Unit) { onDispose { engine.stop() } }
 
         fun sync() {
             Thread {
                 try {
-                    val accepted = SupabaseClient.ingestMeterEvents(session, trip.getString("id"), engine.queuedEvents())
-                    if (accepted >= 0) engine.clearQueuedEvents()
+                    val accepted = SupabaseClient.ingestMeterEvents(session, trip.getString("id"), meterEngine.queuedEvents())
+                    if (accepted >= 0) meterEngine.clearQueuedEvents()
                     runOnUiThread { syncMessage = "Synced $accepted meter events" }
-                } catch (e: Exception) { runOnUiThread { syncMessage = "Offline: events kept on device" } }
+                } catch (_: Exception) {
+                    runOnUiThread { syncMessage = "Offline: events kept on device" }
+                }
             }.start()
         }
 
@@ -427,11 +458,12 @@ class MainActivity : ComponentActivity() {
                     completing = true
                     Thread {
                         try {
-                            val queued = engine.queuedEvents()
+                            val queued = meterEngine.queuedEvents()
                             if (queued.length() > 0) {
                                 SupabaseClient.ingestMeterEvents(session, trip.getString("id"), queued)
-                                engine.clearQueuedEvents()
+                                meterEngine.clearQueuedEvents()
                             }
+                            stopService(Intent(this@MainActivity, MeterForegroundService::class.java))
                             val result = SupabaseClient.completeTrip(session, trip.getString("id"))
                             val invoice = result.optJSONObject("invoice") ?: JSONObject()
                             runOnUiThread { onCompleted(invoice) }
@@ -443,7 +475,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
 
 
     @Composable
