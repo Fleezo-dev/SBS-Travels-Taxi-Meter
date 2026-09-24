@@ -91,8 +91,18 @@ object SupabaseClient {
  fun history(s:Session)=get(URL+"/functions/v1/driver-history",s)
  fun transition(s:Session,tripId:String,toStatus:String,startOtp:String?=null)=post(URL+"/functions/v1/trip-transition",s,JSONObject().apply{put("trip_id",tripId);put("to_status",toStatus);if(!startOtp.isNullOrBlank())put("start_otp",startOtp)}.toString())
  fun ingestMeterEvents(s:Session,tripId:String,events:org.json.JSONArray):Int{
-  val body=org.json.JSONObject().put("trip_id",tripId).put("events",events).toString()
-  return post(URL+"/functions/v1/meter-ingest",s,body).optInt("accepted",0)
+  if(events.length()==0)return 0
+  var acceptedTotal=0
+  var offset=0
+  while(offset<events.length()){
+   val batch=org.json.JSONArray()
+   val end=minOf(offset+500,events.length())
+   for(i in offset until end)batch.put(events.getJSONObject(i))
+   val body=org.json.JSONObject().put("trip_id",tripId).put("events",batch).toString()
+   acceptedTotal+=post(URL+"/functions/v1/meter-ingest",s,body).optInt("accepted",0)
+   offset=end
+  }
+  return acceptedTotal
  }
  fun completeTrip(s:Session,tripId:String,extraFare:Double=0.0)=post(URL+"/functions/v1/trip-complete",s,JSONObject().put("trip_id",tripId).put("extra_fare",extraFare).toString())
  private fun get(url:String,s:Session):JSONObject{
